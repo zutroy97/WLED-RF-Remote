@@ -214,10 +214,15 @@ void dump(){
 // {"state": {"bri": 128, "transition": 7634}}
 // {"state": {"bri": 80}}
 // {"state": {"transition": 5555}}
+// {"state":{"on":true,"bri":127,"transition":7,"ps":-1,"pl":-1,"nl":{"on":false,"dur":60,"fade":true,"tbri":0},"udpn":{"send":false,"recv":true},"seg":[{"start":0,"stop":20,"len":20,"col":[[255,160,0,0],[0,0,0,0],[0,0,0,0]],"fx":0,"sx":127,"ix":127,"pal":0,"sel":true,"rev":false,"cln":-1}]},"info":{"ver":"0.8.4","vid":1903252,"leds":{"count":20,"rgbw":true,"pin":[2],"pwr":0,"maxpwr":65000,"maxseg":1},"name":"WLED Light","udpport":21324,"live":false,"fxcount":80,"palcount":47,"arch":"esp8266","core":"2_4_2","freeheap":13264,"uptime":17985,"opt":127,"brand":"WLED","product":"DIY light","btype":"src","mac":"60019423b441"}}
 void TryParseWledStatus(){
   if (Serial.available() == false){return;}
-  StaticJsonDocument<200> doc;
-  DeserializationError error = deserializeJson(doc, Serial);
+  StaticJsonDocument<24> filter;
+  filter["state"]["bri"] = true;
+  filter["state"]["transition"] = true;
+
+  StaticJsonDocument<768> doc;
+  DeserializationError error = deserializeJson(doc, Serial, DeserializationOption::Filter(filter));
     // Test if parsing succeeds.
   if (error) {
     Serial.print(F("deserializeJson() failed: "));
