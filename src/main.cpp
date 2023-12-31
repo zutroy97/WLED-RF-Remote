@@ -72,7 +72,8 @@ void WriteJsonPower(bool turnOn);
 void WriteJsonColor(remote_buttons button);
 void WriteIteratePresets(void);
 void WriteJsonBrightness(bool makeBrighter);
-void WriteJsonTransistionSpeed(bool makefaster);
+void WriteJsonTransistionSpeed(bool makeFaster);
+void TryParseWledStatus(void);
 
 void handleRfInterrupt()
 {
@@ -144,6 +145,7 @@ unsigned long newRemoteTimeout;
 
 void setup() {
   Serial.begin(115200);
+  while (!Serial) continue;
   attachInterrupt(digitalPinToInterrupt(REMOTE_RF_PIN), handleRfInterrupt, CHANGE);
   Serial.write("Started\n");
   remote_id = getRemoteIdFromEeprom();
@@ -159,6 +161,8 @@ void loop() {
   if (newRemoteTimeout > 0 && (micros() > newRemoteTimeout)){
     newRemoteTimeout = 0; // New Remote window expired. Completely disable new remote functionality.
   }
+
+  TryParseWledStatus();
 
   if (receivedCommand.isReady == 1)
   {
@@ -203,7 +207,32 @@ void loop() {
   }
 }
 
-void HandleProgrammingNewRemoteId(void){
+void dump(){
+  Serial.write("bri/transition "); Serial.print(brightness); Serial.write(" / ");Serial.println(transistionSpeed);
+}
+
+// {"state": {"bri": 128, "transition": 7634}}
+// {"state": {"bri": 80}}
+// {"state": {"transition": 5555}}
+void TryParseWledStatus(){
+  if (Serial.available() == false){return;}
+  StaticJsonDocument<200> doc;
+  DeserializationError error = deserializeJson(doc, Serial);
+    // Test if parsing succeeds.
+  if (error) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.f_str());
+    return;
+  }
+  dump();
+  brightness = doc["state"]["bri"] | brightness;
+  transistionSpeed = doc["state"]["transition"] | transistionSpeed;
+  dump();
+}
+
+
+
+void HandleProgrammingNewRemoteId(){
   if (newRemoteTimeout > 0 && (micros() < newRemoteTimeout) && (remote_id != receivedCommand.packet.id.remote)){
     // If in the timeout window, and a compatible remote has the same button pushed 5 times, use that remote.
     if (receivedCommand.count == 1){
