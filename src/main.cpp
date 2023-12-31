@@ -1,11 +1,15 @@
 #include <Arduino.h>
 #include <EEPROM.h>
+#include <ArduinoJson.h>
+
+
+
 
 const byte REMOTE_RF_PIN  = 2; // Input from RF module output
 const byte newRemoteButtonPressMaxCount = 5; // Number of times a new remote must be pressed during programming window.
 const byte newRemoteWindownInSeconds = 10; // New Remote must be programmed within this number of seconds after startup.
 const unsigned long Remote_Repeat_Time_ns = 100000; //100 ms. Wait this long before reporting another press of the same button.
-
+const byte brightnessStepAmount = 20; // Amount to increase/decrease brightness
 /************************
  * End of configuration *
  * **********************/
@@ -38,14 +42,6 @@ enum remote_buttons : byte{
   GREEN         = 0x0C
 };
 
-const byte EEPROM_ADDR_REMOTE_ID = 0x00; // EEPROM address to write remote id
-unsigned int remote_id = 0xffff;  // Remote Id to respond to.
-
-unsigned long getRemoteIdFromEeprom(); // Fetch the last remote id from EEPROM
-void writeRemoteIdToEeprom(unsigned long remoteId); // Write remote id to EEPROM (if changed.)
-void WriteToSerialHumanReadable(void);
-void HandleProgrammingNewRemoteId(void);
-
 // Contains data about the RF packet
 union RFPacket {
   struct{
@@ -63,6 +59,20 @@ volatile struct RemoteCommand
   byte isReady = 0;
   unsigned long receiveTime;
 } receivedCommand;
+
+const byte EEPROM_ADDR_REMOTE_ID = 0x00; // EEPROM address to write remote id
+unsigned int remote_id = 0xffff;  // Remote Id to respond to.
+byte brightness = 255;
+unsigned int transistionSpeed = 0x7fff;
+
+unsigned long getRemoteIdFromEeprom(); // Fetch the last remote id from EEPROM
+void writeRemoteIdToEeprom(unsigned long remoteId); // Write remote id to EEPROM (if changed.)
+void HandleProgrammingNewRemoteId(void);
+void WriteJsonPower(bool turnOn);
+void WriteJsonColor(remote_buttons button);
+void WriteIteratePresets(void);
+void WriteJsonBrightness(bool makeBrighter);
+void WriteJsonTransistionSpeed(bool makefaster);
 
 void handleRfInterrupt()
 {
@@ -131,6 +141,7 @@ void handleRfInterrupt()
 };
 
 unsigned long newRemoteTimeout;
+
 void setup() {
   Serial.begin(115200);
   attachInterrupt(digitalPinToInterrupt(REMOTE_RF_PIN), handleRfInterrupt, CHANGE);
@@ -155,7 +166,37 @@ void loop() {
     if (remote_id == receivedCommand.packet.id.remote)
     {
       if (receivedCommand.count == 1){ // Don't allow holding down the button.
-        WriteToSerialHumanReadable();
+        switch (receivedCommand.packet.id.command){
+          case remote_buttons::RED:
+          case remote_buttons::GREEN:
+          case remote_buttons::BLUE:
+          case remote_buttons::WHITE:
+            WriteJsonColor(receivedCommand.packet.id.command);
+            break;
+          case remote_buttons::ON:
+            WriteJsonPower(true);
+            break;          
+          case remote_buttons::OFF:
+            WriteJsonPower(false);
+            break;
+          case remote_buttons::UP:
+            WriteJsonTransistionSpeed(true);
+            break;
+          case remote_buttons::DOWN:
+            WriteJsonTransistionSpeed(false);
+            break;
+          case remote_buttons::MINUS:
+            WriteJsonBrightness(false);
+            break;
+          case remote_buttons::PLUS:
+            WriteJsonBrightness(true);
+            break;
+          case remote_buttons::DOUBLE_ARROW:
+            WriteIteratePresets();
+            break;
+          default:
+            break;
+        }        
       } 
     }
     receivedCommand.isReady = 0; // notify the interrupt handler this packet has been handled.
@@ -184,49 +225,74 @@ void HandleProgrammingNewRemoteId(void){
   }
 }
 
-void WriteToSerialHumanReadable(){
-  Serial.write("REMOTE ID: 0x"); Serial.print(receivedCommand.packet.id.remote, HEX);
-  Serial.write(" COMMAND: 0x"); Serial.print(receivedCommand.packet.id.command, HEX);Serial.write(" ");
-  switch (receivedCommand.packet.id.command){
-    case remote_buttons::RED:
-      Serial.write("RED");
-      break;
-    case remote_buttons::GREEN:
-      Serial.write("GREEN");
-      break;
-    case remote_buttons::ON:
-      Serial.write("ON");
-      break;          
-    case remote_buttons::WHITE:
-      Serial.write("WHITE");
-      break;
-    case remote_buttons::BLUE:
-      Serial.write("BLUE");
-      break;
-    case remote_buttons::OFF:
-      Serial.write("OFF");
-      break;
-    case remote_buttons::UP:
-      Serial.write("UP");
-      break;
-    case remote_buttons::DOWN:
-      Serial.write("DOWN");
-      break;
-    case remote_buttons::MINUS:
-      Serial.write("MINUS");
-      break;
-    case remote_buttons::PLUS:
-      Serial.write("PLUS");
-      break;
-    case remote_buttons::DOUBLE_ARROW:
-      Serial.write("Double Arrow");
-      break;          
-    default:
-      Serial.write(receivedCommand.packet.id.command);
-      break;
-  }
-  Serial.write("\n");  
+void WriteJsonPower(bool turnOn){
+  const size_t capacity = JSON_OBJECT_SIZE(1);
+  StaticJsonDocument<capacity> doc;
+  doc["on"] = turnOn;
+  serializeJson(doc, Serial);
 }
+
+void WriteJsonBrightness(bool makeBrighter){
+  const size_t capacity = JSON_OBJECT_SIZE(1);
+  StaticJsonDocument<capacity> doc;
+  byte currentBrightness = brightness;
+  if (makeBrighter){
+    brightness += brightnessStepAmount;
+    if (brightness < currentBrightness){brightness=255;}
+  }else{
+    brightness -= brightnessStepAmount;
+    if (brightness > currentBrightness){brightness = 0;}
+  }
+  doc["bri"] = brightness;
+  serializeJson(doc, Serial);
+}
+
+void WriteJsonTransistionSpeed(bool makeFaster){
+  const size_t capacity = JSON_OBJECT_SIZE(1);
+  StaticJsonDocument<capacity> doc;
+  unsigned int currentSpeed = transistionSpeed;
+  if (makeFaster){
+    transistionSpeed++;
+    if (transistionSpeed < currentSpeed){transistionSpeed=0xffff;}
+  }else{
+    transistionSpeed--;
+    if (transistionSpeed > currentSpeed){transistionSpeed = 0;}
+  }
+  doc["transition"] = transistionSpeed;
+  serializeJson(doc, Serial);
+}
+
+void WriteJsonColor(remote_buttons button){
+  StaticJsonDocument<64> doc;
+  byte r=0, g=0, b=0, w=0;
+  switch(button){
+    case remote_buttons::BLUE:
+      b=255; break;
+    case remote_buttons::GREEN:
+      g=255;break;
+    case remote_buttons::RED:
+      r=255; break;
+    case remote_buttons::WHITE:
+      w=255; break;
+    default:
+      return;
+  }
+  doc["on"] = true;
+  JsonArray seg0 = doc["seg"][0].createNestedArray("col");
+  seg0.add(r);
+  seg0.add(g);
+  seg0.add(b);
+  seg0.add(w);
+  serializeJson(doc, Serial);
+}
+
+void WriteIteratePresets(){
+  const size_t capacity = JSON_OBJECT_SIZE(1);
+  StaticJsonDocument<capacity> doc;
+  doc["ps"] = "1~10~";
+  serializeJson(doc, Serial);  
+}
+
 
 unsigned long getRemoteIdFromEeprom()
 {
@@ -238,3 +304,4 @@ unsigned long getRemoteIdFromEeprom()
 void writeRemoteIdToEeprom(unsigned long remoteId){
   EEPROM.put(EEPROM_ADDR_REMOTE_ID, remoteId);
 }
+
