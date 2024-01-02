@@ -9,7 +9,7 @@ const byte REMOTE_RF_PIN  = 2; // Input from RF module output
 const byte newRemoteButtonPressMaxCount = 5; // Number of times a new remote must be pressed during programming window.
 const byte newRemoteWindownInSeconds = 10; // New Remote must be programmed within this number of seconds after startup.
 const unsigned long Remote_Repeat_Time_ns = 100000; //100 ms. Wait this long before reporting another press of the same button.
-const byte brightnessStepAmount = 20; // Amount to increase/decrease brightness
+const byte brightnessStepAmount = 25; // Amount to increase/decrease brightness
 /************************
  * End of configuration *
  * **********************/
@@ -62,7 +62,6 @@ volatile struct RemoteCommand
 
 const byte EEPROM_ADDR_REMOTE_ID = 0x00; // EEPROM address to write remote id
 unsigned int remote_id = 0xffff;  // Remote Id to respond to.
-byte brightness = 255;
 unsigned int transistionSpeed = 0x7fff;
 
 unsigned long getRemoteIdFromEeprom(); // Fetch the last remote id from EEPROM
@@ -208,7 +207,7 @@ void loop() {
 }
 
 void dump(){
-  Serial.write("bri/transition "); Serial.print(brightness); Serial.write(" / ");Serial.println(transistionSpeed);
+  Serial.write("/transition "); Serial.write(" / ");Serial.println(transistionSpeed);
 }
 
 // {"state": {"bri": 128, "transition": 7634}}
@@ -230,12 +229,9 @@ void TryParseWledStatus(){
     return;
   }
   dump();
-  brightness = doc["state"]["bri"] | brightness;
   transistionSpeed = doc["state"]["transition"] | transistionSpeed;
   dump();
 }
-
-
 
 void HandleProgrammingNewRemoteId(){
   if (newRemoteTimeout > 0 && (micros() < newRemoteTimeout) && (remote_id != receivedCommand.packet.id.remote)){
@@ -269,15 +265,7 @@ void WriteJsonPower(bool turnOn){
 void WriteJsonBrightness(bool makeBrighter){
   const size_t capacity = JSON_OBJECT_SIZE(1);
   StaticJsonDocument<capacity> doc;
-  byte currentBrightness = brightness;
-  if (makeBrighter){
-    brightness += brightnessStepAmount;
-    if (brightness < currentBrightness){brightness=255;}
-  }else{
-    brightness -= brightnessStepAmount;
-    if (brightness > currentBrightness){brightness = 0;}
-  }
-  doc["bri"] = brightness;
+  doc["bri"] = makeBrighter ? "~25" : "~-25";
   serializeJson(doc, Serial);
 }
 
@@ -297,7 +285,7 @@ void WriteJsonTransistionSpeed(bool makeFaster){
 }
 
 void WriteJsonColor(remote_buttons button){
-  StaticJsonDocument<64> doc;
+  StaticJsonDocument<96> doc;
   byte r=0, g=0, b=0, w=0;
   switch(button){
     case remote_buttons::BLUE:
@@ -312,7 +300,7 @@ void WriteJsonColor(remote_buttons button){
       return;
   }
   doc["on"] = true;
-  JsonArray seg0 = doc["seg"][0].createNestedArray("col");
+  JsonArray seg0 = doc["seg"][0]["col"].createNestedArray();
   seg0.add(r);
   seg0.add(g);
   seg0.add(b);
