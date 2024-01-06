@@ -311,10 +311,9 @@ void WriteJsonColor(remote_buttons button){
 void WriteIteratePresets(){
   const size_t capacity = JSON_OBJECT_SIZE(1);
   StaticJsonDocument<capacity> doc;
-  doc["ps"] = "1~10~";
+  doc["ps"] = "1~5~";
   serializeJson(doc, Serial);  
 }
-
 
 unsigned long getRemoteIdFromEeprom()
 {
