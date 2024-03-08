@@ -2,9 +2,6 @@
 #include <EEPROM.h>
 #include <ArduinoJson.h>
 
-
-
-
 const byte REMOTE_RF_PIN  = 2; // Input from RF module output
 const byte newRemoteButtonPressMaxCount = 5; // Number of times a new remote must be pressed during programming window.
 const byte newRemoteWindownInSeconds = 10; // New Remote must be programmed within this number of seconds after startup.
@@ -158,7 +155,7 @@ unsigned int newRemoteId = 0xffff;
 
 void loop() {
   if (newRemoteTimeout > 0 && (micros() > newRemoteTimeout)){
-    newRemoteTimeout = 0; // New Remote window expired. Completely disable new remote functionality.
+    newRemoteTimeout = 0; // Pairing New Remote window expired. Completely disable new remote functionality.
   }
 
   TryParseWledStatus();
@@ -224,8 +221,8 @@ void TryParseWledStatus(){
   DeserializationError error = deserializeJson(doc, Serial, DeserializationOption::Filter(filter));
     // Test if parsing succeeds.
   if (error) {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(error.f_str());
+    // Serial.print(F("deserializeJson() failed: "));
+    // Serial.println(error.f_str());
     return;
   }
   dump();
@@ -235,7 +232,7 @@ void TryParseWledStatus(){
 
 void HandleProgrammingNewRemoteId(){
   if (newRemoteTimeout > 0 && (micros() < newRemoteTimeout) && (remote_id != receivedCommand.packet.id.remote)){
-    // If in the timeout window, and a compatible remote has the same button pushed 5 times, use that remote.
+    // If in the time window, and a compatible remote has the same button pushed 5 times, use that remote.
     if (receivedCommand.count == 1){
       if (newRemoteButtonPressCount == newRemoteButtonPressMaxCount){
         newRemoteId = receivedCommand.packet.id.remote;
@@ -272,12 +269,14 @@ void WriteJsonBrightness(bool makeBrighter){
 void WriteJsonTransistionSpeed(bool makeFaster){
   const size_t capacity = JSON_OBJECT_SIZE(1);
   StaticJsonDocument<capacity> doc;
+  // Duration of the crossfade between different colors/brightness levels. 
+  // One unit is 100ms, so a value of 4 results in atransition of 400ms.
   unsigned int currentSpeed = transistionSpeed;
   if (makeFaster){
-    transistionSpeed++;
+    transistionSpeed += 2;
     if (transistionSpeed < currentSpeed){transistionSpeed=0xffff;}
   }else{
-    transistionSpeed--;
+    transistionSpeed -= 2;
     if (transistionSpeed > currentSpeed){transistionSpeed = 0;}
   }
   doc["transition"] = transistionSpeed;
@@ -285,7 +284,7 @@ void WriteJsonTransistionSpeed(bool makeFaster){
 }
 
 void WriteJsonColor(remote_buttons button){
-  StaticJsonDocument<96> doc;
+  StaticJsonDocument<100> doc;
   byte r=0, g=0, b=0, w=0;
   switch(button){
     case remote_buttons::BLUE:
@@ -300,11 +299,16 @@ void WriteJsonColor(remote_buttons button){
       return;
   }
   doc["on"] = true;
-  JsonArray seg0 = doc["seg"][0]["col"].createNestedArray();
-  seg0.add(r);
-  seg0.add(g);
-  seg0.add(b);
-  seg0.add(w);
+
+  JsonObject seg_0 = doc["seg"].createNestedObject();
+  seg_0["fx"] = 0; // Set segment effect to solid
+
+  // Set segment colors
+  JsonArray seg_0_col_0 = seg_0["col"].createNestedArray();
+  seg_0_col_0.add(r);
+  seg_0_col_0.add(g);
+  seg_0_col_0.add(b);
+  seg_0_col_0.add(w);
   serializeJson(doc, Serial);
 }
 
